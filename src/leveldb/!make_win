@@ -1,0 +1,4 @@
+#!/bin/bash 
+make clean
+export PATH=/home/user/git/mxe/usr/bin:$PATH
+TARGET_OS=NATIVE_WINDOWS make CROSS=i686-pc-mingw32- libleveldb.a libmemenv.a;
