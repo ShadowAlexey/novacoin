@@ -1948,6 +1948,7 @@ bool CWallet::CreateCoinStake(const CKeyStore& keystore, unsigned int nBits, uin
     if (nCredit == 0 || nCredit > nBalance - nReserveBalance)
         return false;
 
+    vector<int64_t> inputValues;
     // (txid, vout.n) => ((txindex, (tx, vout.n)), (block, modifier))
     for(MetaMap::const_iterator meta_item = mapMeta.begin(); meta_item != mapMeta.end(); meta_item++)
     {
@@ -1980,10 +1981,12 @@ bool CWallet::CreateCoinStake(const CKeyStore& keystore, unsigned int nBits, uin
             txNew.vin.push_back(CTxIn(pcoin.first->GetHash(), pcoin.second));
             nCredit += pcoin.first->vout[pcoin.second].nValue;
             vwtxPrev.push_back(pcoin.first);
+            inputValues.push_back(pcoin.first->vout[pcoin.second].nValue);
         }
     }
 
     // Calculate coin age reward
+    while(true)
     {
         uint64_t nCoinAge;
         CTxDB txdb("r");
@@ -1994,8 +1997,17 @@ bool CWallet::CreateCoinStake(const CKeyStore& keystore, unsigned int nBits, uin
         // Refuse to create mint that has zero or negative reward
         if(nReward <= 0)
             return false;
-    
+        // Refuse to create mint that hit max if has joined inputs
+        if((nReward == 10 * COIN) && (txNew.vin.size() > 1))
+        {
+            txNew.vin.pop_back();
+            vwtxPrev.pop_back();
+            nCredit -= inputValues.back();
+            inputValues.pop_back();
+            continue;
+        }
         nCredit += nReward;
+        break;
     }
 
     int64_t nMinFee = 0;
