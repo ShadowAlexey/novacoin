@@ -1997,6 +1997,9 @@ bool CWallet::CreateCoinStake(const CKeyStore& keystore, unsigned int nBits, uin
         // Refuse to create mint that has zero or negative reward
         if(nReward <= 0)
             return false;
+        //Refuse to create mint lover than one coin.
+        if(nReward <= COIN)
+            return false;
         // Refuse to create mint that hit max if has joined inputs
         if((nReward == 10 * COIN) && (txNew.vin.size() > 1))
         {
