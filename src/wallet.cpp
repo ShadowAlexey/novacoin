@@ -1940,7 +1940,7 @@ bool CWallet::CreateCoinStake(uint256 &hashTx, uint32_t nOut, uint32_t nGenerati
 
     // The following combine threshold is important to security
     // Should not be adjusted if you don't understand the consequences
-    int64_t nCombineThreshold = GetProofOfWorkReward(GetLastBlockIndex(pindexBest, false)->nBits) / 3;
+    int64_t nCombineThreshold = GetArg("-combinethreshold", GetProofOfWorkReward(GetLastBlockIndex(pindexBest, false)->nBits) * 10);
 
     int64_t nBalance = GetBalance();
     int64_t nCredit = wtx.vout[nOut].nValue;
@@ -1973,6 +1973,7 @@ bool CWallet::CreateCoinStake(uint256 &hashTx, uint32_t nOut, uint32_t nGenerati
         return false;
 
     bool fDontSplitCoins = false;
+    vector<int64_t> inputValues;
     if (GetWeight((int64_t)wtx.nTime, (int64_t)nGenerationTime) == nStakeMaxAge)
     {
         // Only one output for old kernel inputs
@@ -2009,10 +2010,10 @@ bool CWallet::CreateCoinStake(uint256 &hashTx, uint32_t nOut, uint32_t nGenerati
             // Do not add additional significant input
             if (pcoin->first->vout[pcoin->second].nValue > nCombineThreshold)
                 continue;
-
             txNew.vin.push_back(CTxIn(pcoin->first->GetHash(), pcoin->second));
             nCredit += pcoin->first->vout[pcoin->second].nValue;
             vwtxPrev.push_back(pcoin->first);
+            inputValues.push_back(pcoin->first->vout[pcoin->second].nValue);
         }
 
         fDontSplitCoins = true;
@@ -2045,7 +2046,20 @@ bool CWallet::CreateCoinStake(uint256 &hashTx, uint32_t nOut, uint32_t nGenerati
     CTxDB txdb("r");
     if (!txNew.GetCoinAge(txdb, nCoinAge))
         return error("CreateCoinStake : failed to calculate coin age\n");
-    nCredit += GetProofOfStakeReward(nCoinAge, nBits, nGenerationTime);
+    int64_t posReward = GetProofOfStakeReward(nCoinAge, nBits, nGenerationTime);
+    while((posReward == 10 * COIN) && (txNew.vin.size()>1))
+    {
+        txNew.vin.pop_back();
+        vwtxPrev.pop_back();
+        nCredit -= inputValues.back();
+        inputValues.pop_back();
+        if (!txNew.GetCoinAge(txdb, nCoinAge))
+            return error("CreateCoinStake : failed to calculate coin age\n");
+        posReward = GetProofOfStakeReward(nCoinAge, nBits, nGenerationTime);
+    }
+    if (posReward < GetArg("-ignorethreshold", 1 * COIN))
+        return false;
+    nCredit += posReward;
 
     int64_t nMinFee = 0;
     for ( ; ; )
