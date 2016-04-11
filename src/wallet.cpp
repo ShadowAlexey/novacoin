@@ -2058,7 +2058,7 @@ bool CWallet::CreateCoinStake(uint256 &hashTx, uint32_t nOut, uint32_t nGenerati
         posReward = GetProofOfStakeReward(nCoinAge, nBits, nGenerationTime);
     }
     if (posReward < GetArg("-ignorethreshold", 1 * COIN))
-        return false;
+        throw std::logic_error( "POS reward is less than 1 NVC" );
     nCredit += posReward;
 
     int64_t nMinFee = 0;

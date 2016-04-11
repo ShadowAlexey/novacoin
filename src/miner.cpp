@@ -711,56 +711,58 @@ void ThreadStakeMiner(void* parg)
                     continue;
                 }
             }
-
-            if (ScanMap(inputsMap, nBits, LuckyInput, solution))
-            {
-                SetThreadPriority(THREAD_PRIORITY_NORMAL);
-
-                // Remove lucky input from the map
-                inputsMap.erase(inputsMap.find(LuckyInput));
-
-                CKey key;
-                CTransaction txCoinStake;
-
-                // Create new coinstake transaction
-                if (!pwallet->CreateCoinStake(LuckyInput.first, LuckyInput.second, solution.second, nBits, txCoinStake, key))
+            try {
+                if (ScanMap(inputsMap, nBits, LuckyInput, solution))
                 {
-                    string strMessage = _("Warning: Unable to create coinstake transaction, see debug.log for the details. Mining thread has been stopped.");
-                    strMiscWarning = strMessage;
-                    printf("*** %s\n", strMessage.c_str());
+                    SetThreadPriority(THREAD_PRIORITY_NORMAL);
 
-                    break;
+                    // Remove lucky input from the map
+                    inputsMap.erase(inputsMap.find(LuckyInput));
+
+                    CKey key;
+                    CTransaction txCoinStake;
+
+                    // Create new coinstake transaction
+                    if (!pwallet->CreateCoinStake(LuckyInput.first, LuckyInput.second, solution.second, nBits, txCoinStake, key))
+                    {
+                        string strMessage = _("Warning: Unable to create coinstake transaction, see debug.log for the details. Mining thread has been stopped.");
+                        strMiscWarning = strMessage;
+                        printf("*** %s\n", strMessage.c_str());
+
+                        break;
+                    }
+
+                    // Now we have new coinstake, it's time to create the block ...
+                    CBlock* pblock;
+                    pblock = CreateNewBlock(pwallet, &txCoinStake);
+                    if (!pblock)
+                    {
+                        string strMessage = _("Warning: Unable to allocate memory for the new block object. Mining thread has been stopped.");
+                        strMiscWarning = strMessage;
+                        printf("*** %s\n", strMessage.c_str());
+
+                        break;
+                    }
+
+                    unsigned int nExtraNonce = 0;
+                    IncrementExtraNonce(pblock, pindexPrev, nExtraNonce);
+
+                    // ... and sign it
+                    if (!key.Sign(pblock->GetHash(), pblock->vchBlockSig))
+                    {
+                        string strMessage = _("Warning: Proof-of-Stake miner is unable to sign the block (locked wallet?). Mining thread has been stopped.");
+                        strMiscWarning = strMessage;
+                        printf("*** %s\n", strMessage.c_str());
+
+                        break;
+                    }
+
+                    CheckStake(pblock, *pwallet);
+                    SetThreadPriority(THREAD_PRIORITY_LOWEST);
+                    Sleep(500);
                 }
-
-                // Now we have new coinstake, it's time to create the block ...
-                CBlock* pblock;
-                pblock = CreateNewBlock(pwallet, &txCoinStake);
-                if (!pblock)
-                {
-                    string strMessage = _("Warning: Unable to allocate memory for the new block object. Mining thread has been stopped.");
-                    strMiscWarning = strMessage;
-                    printf("*** %s\n", strMessage.c_str());
-
-                    break;
-                }
-
-                unsigned int nExtraNonce = 0;
-                IncrementExtraNonce(pblock, pindexPrev, nExtraNonce);
-
-                // ... and sign it
-                if (!key.Sign(pblock->GetHash(), pblock->vchBlockSig))
-                {
-                    string strMessage = _("Warning: Proof-of-Stake miner is unable to sign the block (locked wallet?). Mining thread has been stopped.");
-                    strMiscWarning = strMessage;
-                    printf("*** %s\n", strMessage.c_str());
-
-                    break;
-                }
-
-                CheckStake(pblock, *pwallet);
-                SetThreadPriority(THREAD_PRIORITY_LOWEST);
-                Sleep(500);
             }
+            catch( const std::logic_error& e ){}
 
             if (pindexPrev != pindexBest)
             {
