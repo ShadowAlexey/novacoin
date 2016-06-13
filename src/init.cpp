@@ -38,7 +38,6 @@ enum Checkpoints::CPMode CheckpointsMode;
 
 // Ping and address broadcast intervals
 extern int64_t nPingInterval;
-extern int64_t nBroadcastInterval;
 extern int64_t nReserveBalance;
 
 //////////////////////////////////////////////////////////////////////////////
@@ -376,13 +375,12 @@ bool AppInit2()
 
     // ********************************************************* Step 2: parameter interactions
 
-    nNodeLifespan = (unsigned int)(GetArg("-addrlifespan", 7));
+    nNodeLifespan = GetArgUInt("-addrlifespan", 7);
     fUseFastIndex = GetBoolArg("-fastindex", true);
     fUseMemoryLog = GetBoolArg("-memorylog", true);
 
     // Ping and address broadcast intervals
     nPingInterval = max<int64_t>(10 * 60, GetArg("-keepalive", 30 * 60));
-    nBroadcastInterval = max<int64_t>(6 * nOneHour, GetArg("-addrsetlifetime", nOneDay));
 
     CheckpointsMode = Checkpoints::STRICT;
     std::string strCpMode = GetArg("-cppolicy", "strict");
@@ -780,8 +778,7 @@ bool AppInit2()
                     strLoadError = _("Error loading block database");
                     break;
                 }
-            } catch(std::exception &e) {
-                (void)e;
+            } catch(const std::exception&) {
                 strLoadError = _("Error opening block database");
                 break;
             }

@@ -350,7 +350,7 @@ Value sendtoaddress(const Array& params, bool fHelp)
         throw JSONRPCError(RPC_WALLET_UNLOCK_NEEDED, "Error: Please enter the wallet passphrase with walletpassphrase first.");
 
     string strError = pwalletMain->SendMoney(scriptPubKey, nAmount, wtx);
-    if (strError != "")
+    if (!strError.empty())
         throw JSONRPCError(RPC_WALLET_ERROR, strError);
 
     return wtx.GetHash().GetHex();
@@ -451,11 +451,11 @@ Value verifymessage(const Array& params, bool fHelp)
     ss << strMessageMagic;
     ss << strMessage;
 
-    CKey key;
+    CPubKey key;
     if (!key.SetCompactSignature(Hash(ss.begin(), ss.end()), vchSig))
         return false;
 
-    return (key.GetPubKey().GetID() == keyID);
+    return (key.GetID() == keyID);
 }
 
 
@@ -738,7 +738,7 @@ Value sendfrom(const Array& params, bool fHelp)
 
     // Send
     string strError = pwalletMain->SendMoney(scriptPubKey, nAmount, wtx);
-    if (strError != "")
+    if (!strError.empty())
         throw JSONRPCError(RPC_WALLET_ERROR, strError);
 
     return wtx.GetHash().GetHex();
@@ -843,7 +843,7 @@ Value addmultisigaddress(const Array& params, bool fHelp)
                       "(got %" PRIszu " keys, but need at least %d to redeem)", keys.size(), nRequired));
     if (keys.size() > 16)
         throw runtime_error("Number of addresses involved in the multisignature address creation > 16\nReduce the number");
-    std::vector<CKey> pubkeys;
+    std::vector<CPubKey> pubkeys;
     pubkeys.resize(keys.size());
     for (unsigned int i = 0; i < keys.size(); i++)
     {
@@ -861,16 +861,18 @@ Value addmultisigaddress(const Array& params, bool fHelp)
             if (!pwalletMain->GetPubKey(keyID, vchPubKey))
                 throw runtime_error(
                     strprintf("no full public key for address %s",ks.c_str()));
-            if (!vchPubKey.IsValid() || !pubkeys[i].SetPubKey(vchPubKey))
+            if (!vchPubKey.IsValid())
                 throw runtime_error(" Invalid public key: "+ks);
+            pubkeys[i] = vchPubKey;
         }
 
         // Case 2: hex public key
         else if (IsHex(ks))
         {
             CPubKey vchPubKey(ParseHex(ks));
-            if (!vchPubKey.IsValid() || !pubkeys[i].SetPubKey(vchPubKey))
+            if (!vchPubKey.IsValid())
                 throw runtime_error(" Invalid public key: "+ks);
+             pubkeys[i] = vchPubKey;
         }
         else
         {
@@ -1067,7 +1069,7 @@ void ListTransactions(const CWalletTx& wtx, const string& strAccount, int nMinDe
     bool involvesWatchonly = wtx.IsFromMe(MINE_WATCH_ONLY);
 
     // Generated blocks assigned to account ""
-    if ((nGeneratedMature+nGeneratedImmature) != 0 && (fAllAccounts || strAccount == ""))
+    if ((nGeneratedMature+nGeneratedImmature) != 0 && (fAllAccounts || strAccount.empty()))
     {
         Object entry;
         entry.push_back(Pair("account", string("")));
@@ -1690,7 +1692,7 @@ public:
         obj.push_back(Pair("isscript", false));
         if (mine == MINE_SPENDABLE) {
             pwalletMain->GetPubKey(keyID, vchPubKey);
-            obj.push_back(Pair("pubkey", HexStr(vchPubKey.Raw())));
+            obj.push_back(Pair("pubkey", HexStr(vchPubKey.begin(), vchPubKey.end())));
             obj.push_back(Pair("iscompressed", vchPubKey.IsCompressed()));
         }
         return obj;
@@ -1742,6 +1744,7 @@ Value validateaddress(const Array& params, bool fHelp)
             CMalleableKeyView view;
             bool isMine = pwalletMain->GetMalleableView(mpk, view);
             ret.push_back(Pair("ismine", isMine));
+            ret.push_back(Pair("PubkeyPair", mpk.ToString()));
 
             if (isMine)
                 ret.push_back(Pair("KeyView", view.ToString()));
@@ -1865,6 +1868,29 @@ Value resendtx(const Array& params, bool fHelp)
     return Value::null;
 }
 
+Value resendwallettransactions(const Array& params, bool fHelp)
+{
+    if (fHelp || params.size() != 0)
+        throw runtime_error(
+            "resendwallettransactions\n"
+            "Immediately re-broadcast unconfirmed wallet transactions to all peers.\n"
+            "Intended only for testing; the wallet code periodically re-broadcasts\n"
+            "automatically.\n"
+            "Returns array of transaction ids that were re-broadcast.\n"
+            );
+
+    LOCK2(cs_main, pwalletMain->cs_wallet);
+
+    std::vector<uint256> txids = pwalletMain->ResendWalletTransactionsBefore(GetTime());
+    Array result;
+    BOOST_FOREACH(const uint256& txid, txids)
+    {
+        result.push_back(txid.ToString());
+    }
+    return result;
+}
+
+
 // Make a public-private key pair
 Value makekeypair(const Array& params, bool fHelp)
 {
@@ -1886,8 +1912,9 @@ Value makekeypair(const Array& params, bool fHelp)
 
     bool fCompressed;
     CSecret vchSecret = key.GetSecret(fCompressed);
+    CPubKey vchPubKey = key.GetPubKey();
     result.push_back(Pair("Secret", HexStr<CSecret::iterator>(vchSecret.begin(), vchSecret.end())));
-    result.push_back(Pair("PublicKey", HexStr(key.GetPubKey().Raw())));
+    result.push_back(Pair("PublicKey", HexStr(vchPubKey.begin(), vchPubKey.end())));
     return result;
 }
 
@@ -1955,23 +1982,41 @@ Value adjustmalleablepubkey(const Array& params, bool fHelp)
 {
     if (fHelp || params.size() > 2 || params.size() == 0)
         throw runtime_error(
-            "adjustmalleablepubkey <Malleable public key data>\n"
-            "Calculate new public key using provided malleable public key data.\n");
+            "adjustmalleablepubkey <Malleable address, key view or public key pair>\n"
+            "Calculate new public key using provided data.\n");
 
-    string pubKeyPair = params[0].get_str();
+    string strData = params[0].get_str();
     CMalleablePubKey malleablePubKey;
 
-    if (pubKeyPair.size() == 136) {
-        malleablePubKey.setvch(ParseHex(pubKeyPair));
-    } else
-        malleablePubKey.SetString(pubKeyPair);
+    do
+    {
+        CBitcoinAddress addr(strData);
+        if (addr.IsValid() && addr.IsPair())
+        {
+            // Initialize malleable pubkey with address data
+            malleablePubKey = CMalleablePubKey(addr.GetData());
+            break;
+        }
+        CMalleableKeyView viewTmp(strData);
+        if (viewTmp.IsValid())
+        {
+            // Shazaam, we have a valid key view here.
+            malleablePubKey = viewTmp.GetMalleablePubKey();
+            break;
+        }
+        if (malleablePubKey.SetString(strData))
+            break; // A valid public key pair
+
+        throw runtime_error("Though your data seems a valid Base58 string, we were unable to recognize it.");
+    }
+    while(false);
 
     CPubKey R, vchPubKeyVariant;
     malleablePubKey.GetVariant(R, vchPubKeyVariant);
 
     Object result;
-    result.push_back(Pair("R", HexStr(R.Raw())));
-    result.push_back(Pair("PubkeyVariant", HexStr(vchPubKeyVariant.Raw())));
+    result.push_back(Pair("R", HexStr(R.begin(), R.end())));
+    result.push_back(Pair("PubkeyVariant", HexStr(vchPubKeyVariant.begin(), vchPubKeyVariant.end())));
     result.push_back(Pair("KeyVariantID", CBitcoinAddress(vchPubKeyVariant.GetID()).ToString()));
 
     return result;

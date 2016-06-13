@@ -203,7 +203,7 @@ extern json_spirit::Value getinfo(const json_spirit::Array& params, bool fHelp);
 extern json_spirit::Value reservebalance(const json_spirit::Array& params, bool fHelp);
 extern json_spirit::Value checkwallet(const json_spirit::Array& params, bool fHelp);
 extern json_spirit::Value repairwallet(const json_spirit::Array& params, bool fHelp);
-extern json_spirit::Value resendtx(const json_spirit::Array& params, bool fHelp);
+extern json_spirit::Value resendwallettransactions(const json_spirit::Array& params, bool fHelp);
 extern json_spirit::Value makekeypair(const json_spirit::Array& params, bool fHelp);
 extern json_spirit::Value mergecoins(const json_spirit::Array& params, bool fHelp);
 extern json_spirit::Value newmalleablekey(const json_spirit::Array& params, bool fHelp);
@@ -212,6 +212,7 @@ extern json_spirit::Value adjustmalleablepubkey(const json_spirit::Array& params
 extern json_spirit::Value listmalleableviews(const json_spirit::Array& params, bool fHelp);
 extern json_spirit::Value dumpmalleablekey(const json_spirit::Array& params, bool fHelp);
 extern json_spirit::Value importmalleablekey(const json_spirit::Array& params, bool fHelp);
+extern json_spirit::Value dumppem(const json_spirit::Array& params, bool fHelp);
 
 extern json_spirit::Value encryptdata(const json_spirit::Array& params, bool fHelp); // in rpccrypt.cpp
 extern json_spirit::Value decryptdata(const json_spirit::Array& params, bool fHelp);
